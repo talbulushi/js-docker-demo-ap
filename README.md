@@ -2,17 +2,42 @@
 
 This demo app shows a simple user profile app set up using 
 - `index.html` with pure js and css styles
-- nodejs backend with express module
+- nodejs backend with express module 
 - mongodb for data storage
 
-All components are docker-based and listed out:
-- Dockerfile to create the app container 
-- Docker compose file containing 3 containers to be built, including the app container  
-- Data volumes for data presistance 
+### To start the application (with docker compose)
 
-### With Docker
+Step 1: Run docker compose file. This command will build two mongoDB componenets to create the backend infra within a docker network called  `<repo-name>_mongo-network`. Once this is created you can access mongo Express UI.
 
-#### To start the application
+    docker-compose -f docker-compose.yaml up
+
+Step 2: Check that the network is created with the two containers for mongo DB
+
+    docker network ls 
+
+Step 3: open mongo-express from your browser
+
+    http://localhost:8080
+
+Step 4: Build the app docker container.
+
+    docker build -t <image-name:tag> .
+
+Step 5: Activate the container for your app image.
+
+    docker run -d -p 3000:3000 --name <container-name>  --network <default-network-created> <image-name:tag> 
+
+Step 6: Check the existance of the previous container within the default network created from step 1.
+    docker netowrk inspect <default-network-created>
+
+Step 7: Access the app from your browser 
+
+    http://localhost:3000
+
+_Note: Notice that when you edit the profile of the current user, the data gets updated in the backend (port 8080) under `my-db/users`._ 
+
+
+### To start the application (without docker compose)
 
 Step 1: Create docker network
 

@@ -1,0 +1,39 @@
+version: "3.8"
+services:
+  # my-app:
+  # image: ${docker-registry}/my-app:1.0
+  # ports:
+  # - 3000:3000
+  mongodb:
+    image: mongo:4.2.1
+    ports:
+      - 27017:27017
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - mongo-network
+  mongo-express:
+    image: mongo-express:0.49
+    depends_on:
+      - mongodb
+    restart: always # fixes MongoNetworkError when mongodb is not ready when mongo-express starts
+    ports:
+      - 8080:8081
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=password
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+    networks:
+    - mongo-network
+volumes: # for data presistance 
+  mongo-data:
+    driver: local
+networks: # define a name for the default network that is created 
+  mongo-network:
+    driver: bridge #default driver
+
+# logs for both containers will be mixed into one. The mongo express
+#  will wait for mongodb to connect first before it starts 
