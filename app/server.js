@@ -1,81 +1,150 @@
-let express = require('express');
-let path = require('path');
-let fs = require('fs');
-let MongoClient = require('mongodb').MongoClient;
-let bodyParser = require('body-parser');
-let app = express();
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const { MongoClient } = require('mongodb');
+const bodyParser = require('body-parser');
+const multer = require('multer');
 
-app.use(bodyParser.urlencoded({
-  extended: true
-}));
+const app = express();
+
+// Configure multer for image uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'images/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, `temp-${Date.now()}.jpg`);
+  }
+});
+
+const upload = multer({ storage: storage });
+
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+app.use(express.static(__dirname));
 
-app.get('/', function (req, res) {
-    res.sendFile(path.join(__dirname, "index.html"));
-  });
+// Serve frontend
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 
-app.get('/profile-picture', function (req, res) {
-  let img = fs.readFileSync(path.join(__dirname, "images/profile-1.jpg"));
-  res.writeHead(200, {'Content-Type': 'image/jpg' });
+// Serve profile picture
+app.get('/profile-picture', (req, res) => {
+  const img = fs.readFileSync(path.join(__dirname, 'images/profile-1.jpg'));
+  res.writeHead(200, { 'Content-Type': 'image/jpg' });
   res.end(img, 'binary');
 });
 
-// Detect if running inside Docker
-let isDocker = process.env.DOCKER_ENV === "true";
-
-// Use Docker hostname if inside a container, else local
-let mongoUrl = isDocker ? "mongodb://admin:password@mongodb:27017" : "mongodb://admin:password@localhost:27017";
-
-// pass these options to mongo client connect request to avoid DeprecationWarning for current Server Discovery and Monitoring engine
-let mongoClientOptions = { useNewUrlParser: true, useUnifiedTopology: true };
-
-// "user-account" in demo with docker. "my-db" in demo with docker-compose
-let databaseName = "my-db";
-
-app.post('/update-profile', function (req, res) {
-  let userObj = req.body;
-
-  MongoClient.connect(mongoUrl, mongoClientOptions, function (err, client) {
-
-    if (err) throw err;
-
-    let db = client.db(databaseName);
-    userObj['userid'] = 1;
-
-    let myquery = { userid: 1 };
-    let newvalues = { $set: userObj };
-
-    db.collection("users").updateOne(myquery, newvalues, {upsert: true}, function(err, res) {
-      if (err) throw err;
-      client.close();
-    });
-
-  });
-  // Send response
-  res.send(userObj);
+// Upload profile picture
+app.post('/upload-picture/:userid', upload.single('profileImage'), (req, res) => {
+  const userid = req.params.userid;
+  const oldPath = req.file.path;
+  const newPath = path.join(__dirname, `images/profile-${userid}.jpg`);
+  
+  // Rename the file to use the correct userid
+  fs.renameSync(oldPath, newPath);
+  
+  res.send({ success: true, filename: `profile-${userid}.jpg` });
 });
 
-app.get('/get-profile', function (req, res) {
-  let response = {};
-  // Connect to the db
-  MongoClient.connect(mongoUrl, mongoClientOptions, function (err, client) {
-    if (err) throw err;
+// MongoDB connection
+const isDocker = process.env.DOCKER_ENV === "true";
+const mongoUrl = isDocker
+  ? "mongodb://admin:password@mongodb:27017"
+  : "mongodb://admin:password@localhost:27017";
+const mongoClientOptions = { useNewUrlParser: true, useUnifiedTopology: true };
+const databaseName = "my-db";
 
-    let db = client.db(databaseName);
 
-    let myquery = { userid: 1 };
-
-    db.collection("users").findOne(myquery, function (err, result) {
-      if (err) throw err;
-      response = result;
-      client.close();
-
-      // Send response
-      res.send(response ? response : {});
-    });
-  });
+// Add new profile
+app.post('/add-profile', async (req, res) => {
+  const userObj = req.body;
+  if (!userObj.userid) userObj.userid = Date.now();
+  
+  try {
+    const client = await MongoClient.connect(mongoUrl, mongoClientOptions);
+    const db = client.db(databaseName);
+    const result = await db.collection("users").insertOne(userObj);
+    client.close();
+    res.send({ success: true, user: userObj, insertedId: result.insertedId });
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
 });
 
-app.listen(3000, function () {
-  console.log("app listening on port 3000!");
+// Update profile
+app.post('/update-profile', async (req, res) => {
+  const userObj = req.body;
+  if (!userObj.userid) return res.status(400).send({ error: "userid required" });
+
+  try {
+    const client = await MongoClient.connect(mongoUrl, mongoClientOptions);
+    const db = client.db(databaseName);
+
+    const query = { userid: userObj.userid };
+    const update = { $set: userObj };
+
+    await db.collection("users").updateOne(query, update, { upsert: false });
+    client.close();
+
+    res.send({ success: true, user: userObj });
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// Get profile by userid
+app.get('/get-profile/:userid', async (req, res) => {
+  const userId = parseInt(req.params.userid);
+
+  try {
+    const client = await MongoClient.connect(mongoUrl, mongoClientOptions);
+    const db = client.db(databaseName);
+
+    const profile = await db.collection("users").findOne({ userid: userId });
+    client.close();
+
+    if (!profile) return res.status(404).send({ error: "Profile not found" });
+    res.send(profile);
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// Serve profile picture by userid
+app.get('/profile-picture/:userid', (req, res) => {
+  const userId = req.params.userid;
+  const imagePath = path.join(__dirname, `images/profile-${userId}.jpg`);
+  
+  // Check if image exists, otherwise send a default
+  if (fs.existsSync(imagePath)) {
+    let img = fs.readFileSync(imagePath);
+    res.writeHead(200, { 'Content-Type': 'image/jpg' });
+    res.end(img, 'binary');
+  } else {
+    // Send default image if user's image doesn't exist
+    let img = fs.readFileSync(path.join(__dirname, "images/profile-default.jpg"));
+    res.writeHead(200, { 'Content-Type': 'image/jpg' });
+    res.end(img, 'binary');
+  }
+});
+
+// Delete profile by userid
+app.delete('/delete-profile/:userid', async (req, res) => {
+  const userId = parseInt(req.params.userid);
+  try {
+    const client = await MongoClient.connect(mongoUrl, mongoClientOptions);
+    const db = client.db(databaseName);
+    const result = await db.collection("users").deleteOne({ userid: userId });
+    client.close();
+    if (result.deletedCount === 0) return res.status(404).send({ error: "Profile not found" });
+    res.send({ success: true });
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
+});
+
+// Start server
+app.listen(3000, () => {
+  console.log("App listening on port 3000!");
 });

@@ -96,3 +96,46 @@ Step 5: access the nodejs application from browser
     docker build -t my-app:1.0 .       
     
 The dot "." at the end of the command denotes location of the Dockerfile.
+
+##### Flow diagram 
+        [Page Loads]
+             |
+             v
+   ----------------------
+   |  Actions Section  |
+   | Add New | Search  |
+   ----------------------
+       |          |
+       |          |
+       v          v
+[Add Profile]   [Search Profile]
+  (form)          (enter userid)
+       |          |
+       |          |
+       v          v
+  [Click Create]  [Click Load]
+       |          |
+       |          |
+       v          v
+  Server: POST /add-profile     Server: GET /get-profile/:userid
+       |                          |
+       v                          v
+  Returns new profile             Returns profile if found
+       |                          |
+       +--------------------------+
+       |
+       v
+   [Edit Profile Section]
+   (inputs pre-filled with user data)
+       |
+       v
+  [Click Save]
+       |
+       v
+  Server: POST /update-profile
+       |
+       v
+   Profile updated
+       |
+       v
+(Optional) Back to Actions Section
